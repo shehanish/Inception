@@ -1,0 +1,27 @@
+# Environment files
+srcs/.env
+.env
+
+# Secrets
+secrets/*.txt
+
+# Data directories
+data/
+
+# Docker
+.docker/
+
+#integrated developer enviroments
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# Logs
+*.log
