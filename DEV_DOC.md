@@ -1,257 +1,467 @@
-# Developer Documentation
-
-This document provides technical information for developers working on the Inception project.
+# Developer Documentation - Inception Project
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Project Architecture](#project-architecture)
-3. [Setup and Installation](#setup-and-installation)
-4. [Makefile Commands](#makefile-commands)
-5. [Docker Compose Configuration](#docker-compose-configuration)
-6. [Service Details](#service-details)
-7. [Data Persistence](#data-persistence)
-8. [Development Workflow](#development-workflow)
-9. [Debugging](#debugging)
+1. [Environment Setup](#environment-setup)
+2. [Project Structure](#project-structure)
+3. [Building the Project](#building-the-project)
+4. [Managing Containers and Volumes](#managing-containers-and-volumes)
+5. [Service Architecture](#service-architecture)
+6. [Data Persistence](#data-persistence)
+7. [Development Workflow](#development-workflow)
+8. [Debugging and Testing](#debugging-and-testing)
 
-## Prerequisites
+## Environment Setup
 
-### Required Software
+### Prerequisites
 
-- **Docker Engine**: 20.10+
-  ```bash
-  docker --version
-  ```
-
-- **Docker Compose**: 1.29+
-  ```bash
-  docker-compose --version
-  ```
-
-### System Requirements
-
-- Linux-based system (Debian/Ubuntu recommended)
-- Minimum 2GB RAM
-- Minimum 10GB free disk space
-- Root/sudo privileges for:
-  - Creating directories in `/home/shkaruna/data/`
-  - Modifying `/etc/hosts`
-
-### Installation
-
-If Docker is not installed:
+Install the following on your development machine:
 
 ```bash
+# Update package list
+sudo apt-get update
+
 # Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+sudo apt-get install -y docker.io
 
-# Add user to docker group (optional, requires logout/login)
+# Install Docker Compose
+sudo apt-get install -y docker-compose
+
+# Add user to docker group (optional, to run docker without sudo)
 sudo usermod -aG docker $USER
+newgrp docker
 
-# Install Docker Compose (if not included)
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+# Install Make
+sudo apt-get install -y make
 ```
 
-## Project Architecture
+### Domain Configuration
 
-### Directory Structure
+Add the domain to your `/etc/hosts` file:
+
+```bash
+sudo bash -c 'echo "127.0.0.1 shkaruna.42.fr" >> /etc/hosts'
+```
+
+### Clone and Setup
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd Inception
+
+# Verify directory structure
+ls -la
+```
+
+### Configuration Files
+
+#### 1. Environment Variables (`srcs/.env`)
+
+This file contains all non-sensitive configuration. Create it if it doesn't exist:
+
+```bash
+cat > srcs/.env << 'EOF'
+# Domain Configuration
+DOMAIN_NAME=shkaruna.42.fr
+
+# MySQL/MariaDB Configuration
+MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db_root_password
+MYSQL_DATABASE=wordpress_db
+MYSQL_USER=wordpress_user
+MYSQL_PASSWORD_FILE=/run/secrets/db_password
+MYSQL_HOST=mariadb
+
+# WordPress Configuration
+WP_ADMIN_USER=wpmaster
+WP_ADMIN_PASSWORD=AdminPass789Secure!
+WP_ADMIN_EMAIL=wpmaster@shkaruna.42.fr
+WP_USER=wpuser
+WP_USER_PASSWORD=UserPass321!
+WP_USER_EMAIL=wpuser@shkaruna.42.fr
+WP_TITLE=Inception WordPress
+WP_URL=https://shkaruna.42.fr
+
+# Paths
+WP_PATH=/var/www/html
+DB_DATA_PATH=/home/shkaruna/data/mariadb
+WP_DATA_PATH=/home/shkaruna/data/wordpress
+EOF
+```
+
+**Important**: This file is gitignored. Customize it for your environment.
+
+#### 2. Docker Secrets (`secrets/`)
+
+Create secret files for sensitive data:
+
+```bash
+# Create secrets directory
+mkdir -p secrets
+
+# Database root password
+echo "YourSecureRootPassword123!" > secrets/db_root_password.txt
+
+# WordPress database user password
+echo "YourSecureUserPassword456!" > secrets/db_password.txt
+
+# Create credentials reference file
+cat > secrets/credentials.txt << 'EOF'
+WordPress Admin User: wpmaster
+WordPress Admin Password: AdminPass789Secure!
+WordPress Regular User: wpuser
+Database Root Password: YourSecureRootPassword123!
+Database User Password: YourSecureUserPassword456!
+EOF
+
+# Ensure secrets are gitignored
+echo "*.txt" > secrets/.gitignore
+```
+
+**Security Note**: Never commit these files to Git!
+
+### Create Data Directories
+
+```bash
+sudo mkdir -p /home/shkaruna/data/mariadb
+sudo mkdir -p /home/shkaruna/data/wordpress
+```
+
+## Project Structure
 
 ```
-/home/shkaruna/Inception/
-├── Makefile                              # Build automation
-├── README.md                             # Project overview
-├── USER_DOC.md                          # End-user documentation
-├── DEV_DOC.md                           # This file
-├── secrets/                             # Sensitive data (not in git)
+Inception/
+├── Makefile                                 # Build automation
+├── README.md                               # Project overview
+├── USER_DOC.md                            # User documentation
+├── DEV_DOC.md                             # This file
+├── secrets/                               # Sensitive credentials (gitignored)
+│   ├── .gitignore
 │   ├── credentials.txt
 │   ├── db_password.txt
 │   └── db_root_password.txt
 └── srcs/
-    ├── .env                             # Environment variables
-    ├── docker-compose.yml               # Service orchestration
+    ├── .env                               # Environment variables (gitignored)
+    ├── docker-compose.yml                 # Service orchestration
     └── requirements/
         ├── mariadb/
-        │   ├── Dockerfile               # MariaDB image
+        │   ├── Dockerfile                 # MariaDB container definition
+        │   ├── .dockerignore             # Files to exclude from build
         │   ├── conf/
-        │   │   └── mariadb.cnf         # MariaDB configuration
+        │   │   └── 50-server.cnf         # MariaDB server configuration
         │   └── tools/
-        │       └── init_db.sh          # Database initialization script
+        │       └── init_db.sh            # Database initialization script
         ├── nginx/
-        │   ├── Dockerfile               # NGINX image
-        │   ├── conf/
-        │   │   └── nginx.conf          # NGINX configuration
-        │   └── tools/                   # (empty, reserved for scripts)
+        │   ├── Dockerfile                 # NGINX container definition
+        │   ├── .dockerignore             # Files to exclude from build
+        │   └── conf/
+        │       └── nginx.conf            # NGINX web server + TLS config
         └── wordpress/
-            ├── Dockerfile               # WordPress/PHP-FPM image
-            ├── conf/                    # (empty, reserved for configs)
+            ├── Dockerfile                 # WordPress + PHP-FPM container
+            ├── .dockerignore             # Files to exclude from build
             └── tools/
-                └── setup_wordpress.sh   # WordPress setup script
+                └── setup_wordpress.sh     # WordPress installation script
 ```
 
-### Service Architecture
+## Building the Project
 
-```
-┌─────────────────────────────────────────┐
-│           Host Machine                   │
-│  https://shkaruna.42.fr:443             │
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────────┐
-│         NGINX Container                   │
-│  - Port 443 (HTTPS)                      │
-│  - SSL/TLS Termination                   │
-│  - Reverse Proxy                         │
-└──────────────┬───────────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────────┐
-│      WordPress Container                  │
-│  - PHP-FPM on port 9000                  │
-│  - WordPress Core                        │
-│  - WP-CLI                                │
-└──────────────┬───────────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────────┐
-│       MariaDB Container                   │
-│  - Port 3306 (internal)                  │
-│  - MySQL Database                        │
-│  - WordPress DB                          │
-└──────────────────────────────────────────┘
+### Using Makefile
 
-All containers connected via: inception network (bridge)
-```
-
-## Setup and Installation
-
-### Initial Setup
-
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url> /home/shkaruna/Inception
-   cd /home/shkaruna/Inception
-   ```
-
-2. **Configure domain name**:
-   ```bash
-   sudo echo "127.0.0.1 shkaruna.42.fr" >> /etc/hosts
-   ```
-
-3. **Create environment file**:
-   ```bash
-   # Create .env in srcs/ directory
-   nano srcs/.env
-   ```
-   See Environment Variables section below.
-
-4. **Build and start**:
-   ```bash
-   make
-   ```
-
-### Environment Variables
-
-The `srcs/.env` file must contain:
+The Makefile provides convenient commands:
 
 ```bash
-# Domain
-DOMAIN_NAME=https://shkaruna.42.fr
+# Build all images and start containers
+make
 
-# MariaDB Configuration
-MYSQL_ROOT_PASSWORD=your_root_password
-MYSQL_DATABASE=wordpress
-MYSQL_USER=wpuser
-MYSQL_PASSWORD=your_db_password
-
-# WordPress Admin User
-WP_ADMIN_USER=admin_user
-WP_ADMIN_PASSWORD=admin_password
-WP_ADMIN_EMAIL=admin@example.com
-
-# WordPress Regular User
-WP_USER=author_user
-WP_USER_EMAIL=author@example.com
-WP_USER_PASSWORD=author_password
+# Or step by step:
+make build    # Build Docker images only
+make up       # Start containers
 ```
 
-**Security Note**: Never commit `.env` to git. It should be in `.gitignore`.
+### Using Docker Compose Directly
 
-## Makefile Commands
+```bash
+# Build images
+docker compose -f srcs/docker-compose.yml build
 
-### Available Targets
+# Build without cache (force rebuild)
+docker compose -f srcs/docker-compose.yml build --no-cache
 
-| Command | Description |
-|---------|-------------|
-| `make` or `make all` | Build and start all services (default) |
-| `make up` | Same as `make all` |
-| `make start` | Start existing containers without rebuilding |
-| `make stop` | Stop containers without removing them |
-| `make restart` | Restart all containers |
-| `make down` | Stop and remove containers (preserves volumes) |
-| `make clean` | Stop containers and prune networks |
-| `make fclean` | Complete cleanup: removes everything including data |
-| `make re` | Rebuild from scratch (fclean + up) |
-| `make logs` | View logs from all services |
-| `make ps` | List running containers |
+# Build specific service
+docker compose -f srcs/docker-compose.yml build nginx
 
-### Makefile Implementation Details
+# Start services
+docker compose -f srcs/docker-compose.yml up -d
 
-```makefile
-# Default target
-all: up
-
-# Build and start
-up:
-	mkdir -p /home/shkaruna/data/mariadb
-	mkdir -p /home/shkaruna/data/wordpress
-	docker-compose -f srcs/docker-compose.yml up --build -d
+# View build logs
+docker compose -f srcs/docker-compose.yml logs -f
 ```
 
-The Makefile:
-- Creates data directories automatically
-- Uses `-f` flag to specify docker-compose.yml location
-- Uses `-d` flag for detached mode
-- Includes proper cleanup targets
+### Understanding the Build Process
 
-## Docker Compose Configuration
+1. **Image Building**: Docker reads each Dockerfile and builds images layer by layer
+2. **Layer Caching**: Subsequent builds reuse unchanged layers
+3. **Secrets Mounting**: Docker secrets are mounted at runtime (not during build)
+4. **Volume Creation**: Named volumes are created or bound to host directories
+5. **Network Creation**: Custom bridge network `inception` is created
+6. **Container Startup**: Containers start in dependency order (health checks)
 
-### docker-compose.yml Overview
+### Build Optimization
 
-```yaml
-version: '3.8'
+To optimize build times:
 
-services:
-  mariadb:     # Database service
-  wordpress:   # PHP-FPM + WordPress
-  nginx:       # Web server + SSL
+```bash
+# Use BuildKit for better caching
+export DOCKER_BUILDKIT=1
 
-volumes:
-  mariadb_data:   # Database persistence
-  wordpress_data: # WordPress files persistence
+# Multi-stage builds are already implemented in Dockerfiles
+# Remove unused images
+docker image prune -f
 
-networks:
-  inception:      # Bridge network for inter-container communication
+# Remove build cache
+docker builder prune -af
 ```
 
-### Service Dependencies
+## Managing Containers and Volumes
 
-- `wordpress` depends on `mariadb` (with healthcheck)
-- `nginx` depends on `wordpress`
-- Dependencies ensure proper startup order
+### Container Management
 
-### Network Configuration
+```bash
+# List running containers
+docker ps
+# or
+make ps
 
-All services communicate via the `inception` bridge network:
-- Containers can reference each other by service name
-- Internal DNS resolution provided by Docker
-- Isolated from host network
+# List all containers (including stopped)
+docker ps -a
 
-### Volume Configuration
+# Stop all containers
+docker compose -f srcs/docker-compose.yml down
+# or
+make down
 
-Bind mounts to host directories:
+# Restart specific service
+docker compose -f srcs/docker-compose.yml restart nginx
+
+# Restart all services
+make restart
+
+# View logs for specific container
+docker logs nginx
+docker logs wordpress
+docker logs mariadb
+
+# Follow logs in real-time
+docker logs -f nginx
+
+# View logs for all services
+make logs
+
+# Execute command in running container
+docker exec -it nginx /bin/bash
+docker exec -it wordpress /bin/bash
+docker exec -it mariadb /bin/bash
+
+# Check container resource usage
+docker stats
+
+# Inspect container configuration
+docker inspect nginx
+```
+
+### Volume Management
+
+```bash
+# List volumes
+docker volume ls
+
+# Inspect volume
+docker volume inspect inception_wordpress_data
+docker volume inspect inception_mariadb_data
+
+# Check volume mount points
+docker inspect nginx | grep -A 10 Mounts
+
+# View volume contents (via host)
+sudo ls -la /home/shkaruna/data/wordpress
+sudo ls -la /home/shkaruna/data/mariadb
+
+# Backup volumes
+sudo tar -czf backup-wordpress-$(date +%Y%m%d).tar.gz /home/shkaruna/data/wordpress
+sudo tar -czf backup-mariadb-$(date +%Y%m%d).tar.gz /home/shkaruna/data/mariadb
+
+# Remove volumes (⚠️ deletes data!)
+docker compose -f srcs/docker-compose.yml down --volumes
+# or
+make fclean
+```
+
+### Network Management
+
+```bash
+# List networks
+docker network ls
+
+# Inspect inception network
+docker network inspect inception
+
+# View connected containers
+docker network inspect inception | grep -A 5 Containers
+
+# Test connectivity between containers
+docker exec wordpress ping -c 3 mariadb
+docker exec wordpress ping -c 3 nginx
+docker exec nginx ping -c 3 wordpress
+
+# Check DNS resolution
+docker exec wordpress nslookup mariadb
+```
+
+## Service Architecture
+
+### NGINX (Web Server)
+
+**Purpose**: Reverse proxy and TLS termination
+
+**Key Features**:
+- Listens on port 443 (HTTPS only)
+- TLS 1.2/1.3 with strong ciphers
+- Forwards PHP requests to WordPress container via FastCGI
+- Serves static files directly
+- Self-signed SSL certificate
+
+**Dockerfile Breakdown**:
+```dockerfile
+FROM debian:bullseye              # Base image
+RUN apt-get install nginx openssl # Install packages
+RUN openssl req ...               # Generate SSL cert
+COPY conf/nginx.conf ...          # Copy configuration
+CMD ["nginx", "-g", "daemon off;"]# Run in foreground (PID 1)
+```
+
+**Configuration Files**:
+- `nginx.conf`: Main configuration with TLS and FastCGI settings
+
+**Debugging**:
+```bash
+# Check configuration syntax
+docker exec nginx nginx -t
+
+# Reload configuration
+docker exec nginx nginx -s reload
+
+# View error logs
+docker exec nginx cat /var/log/nginx/error.log
+
+# View access logs
+docker exec nginx cat /var/log/nginx/access.log
+```
+
+### MariaDB (Database)
+
+**Purpose**: Persistent data storage for WordPress
+
+**Key Features**:
+- Binds to all interfaces (0.0.0.0) for container access
+- Uses Docker secrets for passwords
+- Automatic database initialization
+- Health checks via mysqladmin
+
+**Dockerfile Breakdown**:
+```dockerfile
+FROM debian:bullseye                    # Base image
+RUN apt-get install mariadb-server ...  # Install MariaDB
+COPY conf/50-server.cnf ...             # Copy config
+COPY tools/init_db.sh ...               # Copy init script
+ENTRYPOINT ["/usr/local/bin/init_db.sh"]# Run initialization
+```
+
+**Initialization Process** (`init_db.sh`):
+1. Check if database already initialized
+2. Run `mysql_install_db` if needed
+3. Start MariaDB temporarily
+4. Set root password
+5. Create WordPress database and user
+6. Stop temporary instance
+7. Start MariaDB in foreground
+
+**Debugging**:
+```bash
+# Connect to database
+docker exec -it mariadb mysql -u root -p
+
+# Check database status
+docker exec mariadb mysqladmin -u root -p status
+
+# View database list
+docker exec mariadb mysql -u root -p -e "SHOW DATABASES;"
+
+# Check WordPress database
+docker exec mariadb mysql -u root -p wordpress_db -e "SHOW TABLES;"
+
+# View MariaDB logs
+docker exec mariadb cat /var/log/mysql/error.log
+```
+
+### WordPress (Application Server)
+
+**Purpose**: Content management system with PHP-FPM
+
+**Key Features**:
+- PHP 7.4 with FPM (FastCGI Process Manager)
+- WP-CLI for command-line management
+- Automatic WordPress installation
+- Creates admin and regular users
+- Connects to MariaDB via Docker network
+
+**Dockerfile Breakdown**:
+```dockerfile
+FROM debian:bullseye                    # Base image
+RUN apt-get install php7.4-fpm ...      # Install PHP-FPM
+RUN curl -O wp-cli.phar ...             # Install WP-CLI
+RUN sed -i ... php7.4-fpm.sock          # Configure PHP-FPM to listen on port 9000
+ENTRYPOINT ["setup_wordpress.sh"]       # Run setup script
+```
+
+**Setup Process** (`setup_wordpress.sh`):
+1. Wait for MariaDB to be ready
+2. Download WordPress core files (if not present)
+3. Generate `wp-config.php` with database credentials
+4. Run WordPress installation
+5. Create additional user
+6. Set proper permissions
+7. Start PHP-FPM in foreground
+
+**Debugging**:
+```bash
+# Check WordPress installation
+docker exec wordpress wp core version --allow-root
+
+# List WordPress users
+docker exec wordpress wp user list --allow-root
+
+# Check plugins
+docker exec wordpress wp plugin list --allow-root
+
+# Check themes
+docker exec wordpress wp theme list --allow-root
+
+# Test database connectivity
+docker exec wordpress wp db check --allow-root
+
+# View PHP-FPM status
+docker exec wordpress ps aux | grep php-fpm
+
+# Check PHP-FPM logs
+docker exec wordpress cat /var/log/php7.4-fpm.log
+```
+
+## Data Persistence
+
+### Volume Types
+
+The project uses **Docker volumes with bind mounts**:
+
 ```yaml
 volumes:
   mariadb_data:
@@ -262,309 +472,334 @@ volumes:
       device: /home/shkaruna/data/mariadb
 ```
 
-## Service Details
+This provides:
+- Docker volume management
+- Explicit host path access
+- Data persistence across container rebuilds
+- Easy backup and restore
 
-### NGINX Service
+### Data Locations
 
-**Dockerfile**: `srcs/requirements/nginx/Dockerfile`
+**Host Machine**:
+- MariaDB data: `/home/shkaruna/data/mariadb/`
+- WordPress files: `/home/shkaruna/data/wordpress/`
 
-**Base Image**: `debian:bullseye`
+**Inside Containers**:
+- MariaDB: `/var/lib/mysql`
+- WordPress: `/var/www/html`
 
-#SSL and TLS are security protocols that encrypt communication between browsers and servers.
+### Data Persistence Testing
 
-#SSL (Secure Sockets Layer)
-TLS (Transport Layer Security)
-Browser → requests https://shkaruna.42.fr
-NGINX → presents SSL certificate (self-signed)
-Browser → encrypts data using TLS
-NGINX → decrypts, forwards to WordPress
-Response → encrypted back to browser
+```bash
+# Create test post
+docker exec wordpress wp post create \
+    --post_title="Test Post" \
+    --post_content="Testing persistence" \
+    --post_status=publish \
+    --allow-root
 
+# Stop containers
+make down
 
-**Key Components**:
-- NGINX web server
-- OpenSSL for SSL certificate generation
-- Self-signed certificate for `shkaruna.42.fr`
+# Start containers
+make up
 
-**Configuration**:
-- Listens on port 443 (HTTPS only)
-- SSL/TLS v1.2/v1.3 enabled
-- Proxies PHP requests to WordPress container via FastCGI
-- Serves static files from WordPress volume
-
-**NGINX Config** (`conf/nginx.conf`):
-- Server block for `shkaruna.42.fr`
-- SSL certificate paths
-- FastCGI pass to `wordpress:9000`
-- Root directory: `/var/www/html`
-
-**CMD**: `nginx -g "daemon off;"` (runs in foreground)
-
-### WordPress Service
-
-**Dockerfile**: `srcs/requirements/wordpress/Dockerfile`
-
-**Base Image**: `debian:bullseye`
-
-**Key Components**:
-- PHP 7.4-FPM
-- Required PHP extensions (mysqli, gd, curl, mbstring, xml, etc.)
-- WP-CLI for WordPress management
-- MariaDB client
-
-**Configuration**:
-- PHP-FPM listens on port 9000
-- `clear_env = no` to allow environment variables
-
-**Setup Script** (`tools/setup_wordpress.sh`):
-1. Waits for MariaDB to be ready
-2. Downloads WordPress core (if not present)
-3. Creates `wp-config.php` with database credentials
-4. Installs WordPress with admin user
-5. Creates additional author user
-6. Sets proper file permissions
-
-**CMD**: `php-fpm7.4 -F` (runs in foreground)
-
-### MariaDB Service
-
-**Dockerfile**: `srcs/requirements/mariadb/Dockerfile`
-
-**Base Image**: `debian:bullseye`
-
-**Key Components**:
-- MariaDB server and client
-- Configuration for remote connections
-
-**Configuration** (`conf/mariadb.cnf`):
-- Bind to all interfaces (0.0.0.0)
-- Port 3306
-- Custom my.cnf settings
-
-**Init Script** (`tools/init_db.sh`):
-1. Initializes data directory (if first run)
-2. Starts MySQL in bootstrap mode
-3. Sets root password
-4. Creates WordPress database
-5. Creates WordPress user with remote access
-6. Grants privileges
-7. Starts MySQL in foreground
-
-**Healthcheck**:
-```yaml
-healthcheck:
-  test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-  interval: 10s
-  timeout: 5s
-  retries: 5
+# Verify post still exists
+docker exec wordpress wp post list --allow-root
 ```
-
-**CMD**: `mysqld` (runs in foreground)
-
-## Data Persistence
-
-### Volume Paths
-
-Data persists in:
-- **MariaDB**: `/home/shkaruna/data/mariadb`
-- **WordPress**: `/home/shkaruna/data/wordpress`
-
-### Container Mount Points
-
-- **MariaDB**: `/var/lib/mysql` → `/home/shkaruna/data/mariadb`
-- **WordPress**: `/var/www/html` → `/home/shkaruna/data/wordpress`
-- **NGINX**: `/var/www/html` → `/home/shkaruna/data/wordpress` (read-only)
-
-### Data Lifecycle
-
-1. **First run**: Directories are created, databases initialized
-2. **Subsequent runs**: Existing data is reused
-3. **`make down`**: Containers removed, data preserved
-4. **`make fclean`**: Everything deleted, including data
 
 ## Development Workflow
 
-### Making Changes
+### Making Changes to Services
 
-#### Modifying NGINX Configuration
+#### 1. Modify NGINX Configuration
 
-1. Edit `srcs/requirements/nginx/conf/nginx.conf`
-2. Rebuild and restart:
-   ```bash
-   docker-compose -f srcs/docker-compose.yml up -d --build nginx
-   ```
+```bash
+# Edit configuration
+vim srcs/requirements/nginx/conf/nginx.conf
 
-#### Modifying WordPress Setup
+# Rebuild and restart
+docker compose -f srcs/docker-compose.yml build nginx
+docker compose -f srcs/docker-compose.yml up -d nginx
 
-1. Edit `srcs/requirements/wordpress/tools/setup_wordpress.sh`
-2. Rebuild (requires fresh start):
-   ```bash
-   make fclean
-   make up
-   ```
+# Test changes
+curl -k https://shkaruna.42.fr
+```
 
-#### Modifying MariaDB Configuration
+#### 2. Modify MariaDB Configuration
 
-1. Edit `srcs/requirements/mariadb/conf/mariadb.cnf`
-2. Rebuild and restart:
-   ```bash
-   docker-compose -f srcs/docker-compose.yml up -d --build mariadb
-   ```
+```bash
+# Edit configuration
+vim srcs/requirements/mariadb/conf/50-server.cnf
+
+# Rebuild (⚠️ may require data reset)
+make fclean
+make
+```
+
+#### 3. Modify WordPress Setup
+
+```bash
+# Edit setup script
+vim srcs/requirements/wordpress/tools/setup_wordpress.sh
+
+# Rebuild
+docker compose -f srcs/docker-compose.yml build wordpress
+docker compose -f srcs/docker-compose.yml up -d wordpress
+```
 
 ### Testing Changes
 
 ```bash
-# Check container status
-docker ps
+# Run syntax checks
+docker exec nginx nginx -t
+docker exec mariadb mysqladmin ping
 
-# View logs
-docker-compose -f srcs/docker-compose.yml logs -f
+# View real-time logs
+docker logs -f nginx
+docker logs -f wordpress
+docker logs -f mariadb
 
-# Execute commands in container
-docker exec -it nginx bash
-docker exec -it wordpress bash
-docker exec -it mariadb bash
+# Check health status
+docker ps --format "table {{.Names}}\t{{.Status}}"
 
-# Test database connection
-docker exec -it mariadb mysql -u wpuser -p wordpress
+# Test endpoints
+curl -k https://shkaruna.42.fr
+curl -k https://shkaruna.42.fr/wp-admin
 ```
 
-### Docker Commands Reference
+### Environment Variables
+
+To change environment variables:
+
+1. Edit `srcs/.env`
+2. Rebuild affected containers
+3. Restart services
 
 ```bash
-# Build images
-docker-compose -f srcs/docker-compose.yml build
+# Edit .env
+vim srcs/.env
 
-# Start services
-docker-compose -f srcs/docker-compose.yml up -d
-
-# Stop services
-docker-compose -f srcs/docker-compose.yml down
-
-# View logs
-docker-compose -f srcs/docker-compose.yml logs [service_name]
-
-# Execute command in container
-docker-compose -f srcs/docker-compose.yml exec service_name command
-
-# List volumes
-docker volume ls
-
-# Inspect volume
-docker volume inspect volume_name
-
-# List networks
-docker network ls
-
-# Inspect network
-docker network inspect network_name
+# Apply changes
+make down
+make up
 ```
 
-## Debugging
+## Debugging and Testing
 
-### Container Logs
+### Common Issues and Solutions
+
+#### Issue: Containers won't start
 
 ```bash
-# All services
-docker-compose -f srcs/docker-compose.yml logs
+# Check logs
+docker logs <container-name>
 
-# Specific service
-docker-compose -f srcs/docker-compose.yml logs nginx
-docker-compose -f srcs/docker-compose.yml logs wordpress
-docker-compose -f srcs/docker-compose.yml logs mariadb
+# Check for port conflicts
+sudo netstat -tulpn | grep 443
 
-# Follow logs in real-time
-docker-compose -f srcs/docker-compose.yml logs -f
+# Verify Docker service
+sudo systemctl status docker
+
+# Check available resources
+docker system df
 ```
 
-### Interactive Shell Access
+#### Issue: Permission denied errors
 
 ```bash
-# NGINX
-docker exec -it nginx bash
+# Fix volume permissions
+sudo chown -R www-data:www-data /home/shkaruna/data/wordpress
+sudo chown -R mysql:mysql /home/shkaruna/data/mariadb
 
-# WordPress
-docker exec -it wordpress bash
-
-# MariaDB
-docker exec -it mariadb bash
+# Check file ownership
+docker exec wordpress ls -la /var/www/html
+docker exec mariadb ls -la /var/lib/mysql
 ```
 
-### Database Access
+#### Issue: Database connection failed
 
 ```bash
-# Connect to MariaDB
-docker exec -it mariadb mysql -u root -p
+# Check MariaDB is running
+docker exec mariadb mysqladmin ping
 
-# Use WordPress database
-USE wordpress;
-SHOW TABLES;
+# Test connection from WordPress container
+docker exec wordpress mysql -h mariadb -u wordpress_user -p
+
+# Verify network connectivity
+docker exec wordpress ping -c 3 mariadb
+
+# Check environment variables
+docker exec wordpress env | grep MYSQL
 ```
 
-### Network Troubleshooting
+#### Issue: SSL certificate errors
 
 ```bash
-# Test connectivity between containers
-docker exec -it wordpress ping mariadb
-docker exec -it nginx ping wordpress
+# Regenerate certificate
+docker exec nginx openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/nginx/ssl/nginx.key \
+    -out /etc/nginx/ssl/nginx.crt \
+    -subj "/C=FR/ST=IDF/L=Paris/O=42/OU=42/CN=shkaruna.42.fr"
 
-# Check network configuration
-docker network inspect srcs_inception
+# Restart NGINX
+docker restart nginx
 ```
 
-### Common Issues
+### Useful Commands for Debugging
 
-#### Build Fails
+```bash
+# Show all environment variables in container
+docker exec <container> env
 
-- Check Dockerfile syntax
-- Verify base image is accessible
-- Check internet connection
+# Check process list
+docker exec <container> ps aux
 
-#### Container Crashes
+# Check network interfaces
+docker exec <container> ip addr
 
-- Check logs: `docker-compose -f srcs/docker-compose.yml logs service_name`
-- Verify ENTRYPOINT script has execute permissions
-- Ensure script doesn't exit prematurely
+# Check open ports
+docker exec <container> netstat -tulpn
 
-#### Database Connection Fails
+# View filesystem
+docker exec <container> ls -la /
 
-- Verify MariaDB is running and healthy
-- Check credentials in `.env` file
-- Test connection: `docker exec -it mariadb mysql -u wpuser -p`
+# Check disk usage
+docker exec <container> df -h
 
-#### WordPress Setup Fails
+# View running services
+docker exec <container> service --status-all
 
-- Check WordPress logs
-- Verify MariaDB is accessible
-- Ensure volumes have correct permissions
+# Monitor resource usage
+docker stats
 
-## Best Practices
+# Inspect container details
+docker inspect <container> | jq '.[0].Config'
+docker inspect <container> | jq '.[0].NetworkSettings'
+docker inspect <container> | jq '.[0].Mounts'
+```
 
-### Security
+### Health Check Testing
 
-- Never commit `.env` or credentials to git
-- Use strong passwords
-- Keep Docker images updated
-- Regularly backup data
+```bash
+# Check NGINX health
+docker exec nginx pgrep nginx
 
-### Performance
+# Check MariaDB health
+docker exec mariadb mysqladmin ping -h localhost
 
-- Use `.dockerignore` to exclude unnecessary files
-- Minimize layers in Dockerfiles
-- Use multi-stage builds if needed
-- Clean up unused images and volumes
+# Check WordPress health (PHP-FPM)
+docker exec wordpress pgrep php-fpm
 
-### Maintenance
+# Check if WordPress is installed
+docker exec wordpress test -f /var/www/html/wp-config.php && echo "Installed" || echo "Not installed"
+```
 
-- Regularly update base images
-- Monitor disk space usage
-- Review and rotate logs
-- Test backup/restore procedures
+### Performance Testing
+
+```bash
+# Install Apache Bench
+sudo apt-get install apache2-utils
+
+# Test NGINX performance
+ab -n 1000 -c 10 -k https://shkaruna.42.fr/
+
+# Monitor container resources
+docker stats --no-stream
+
+# Check database performance
+docker exec mariadb mysqltuner
+```
+
+## Advanced Topics
+
+### Docker Compose Override
+
+For local development, create `docker-compose.override.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  wordpress:
+    environment:
+      - WP_DEBUG=true
+    volumes:
+      - ./custom-plugins:/var/www/html/wp-content/plugins/custom
+
+  nginx:
+    ports:
+      - "80:80"  # Add HTTP for local testing
+```
+
+### Custom Scripts
+
+Add custom initialization scripts to `requirements/*/tools/`:
+
+```bash
+# Example: Database backup script
+cat > srcs/requirements/mariadb/tools/backup.sh << 'EOF'
+#!/bin/bash
+mysqldump -u root -p"$DB_ROOT_PASSWORD" --all-databases > /backup/all-databases.sql
+EOF
+```
+
+### Security Hardening
+
+For production:
+
+1. Use Let's Encrypt for real SSL certificates
+2. Implement rate limiting in NGINX
+3. Use strong, unique passwords
+4. Regular security updates
+5. Implement firewall rules
+6. Enable audit logging
+
+### CI/CD Integration
+
+Example GitHub Actions workflow:
+
+```yaml
+name: Build and Test
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build images
+        run: make build
+      - name: Run tests
+        run: docker compose -f srcs/docker-compose.yml up -d && sleep 30 && curl -k https://localhost
+```
 
 ## Additional Resources
 
-- [Docker Documentation](https://docs.docker.com/)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
-- [NGINX Documentation](https://nginx.org/en/docs/)
-- [WordPress CLI](https://wp-cli.org/)
-- [MariaDB Documentation](https://mariadb.org/documentation/)
+- [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
+- [PHP-FPM Configuration](https://www.php.net/manual/en/install.fpm.php)
+- [MariaDB Performance Tuning](https://mariadb.com/kb/en/server-system-variables/)
+- [NGINX Optimization](https://www.nginx.com/blog/tuning-nginx/)
+- [WordPress Debugging](https://wordpress.org/support/article/debugging-in-wordpress/)
+- [WP-CLI Commands](https://developer.wordpress.org/cli/commands/)
+
+## Contributing
+
+When contributing to this project:
+
+1. Test all changes locally
+2. Update documentation
+3. Follow Docker best practices
+4. Never commit secrets or credentials
+5. Use meaningful commit messages
+6. Test with `make fclean && make`
+
+## Support
+
+For issues or questions:
+- Check the logs: `make logs`
+- Review error messages carefully
+- Consult the official documentation for each service
+- Test components individually
+- Verify network connectivity and health checks

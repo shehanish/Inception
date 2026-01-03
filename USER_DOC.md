@@ -1,183 +1,105 @@
-# User Documentation
+# User Documentation - Inception Project
 
-This document provides instructions for end users and administrators on how to use and manage the Inception infrastructure.
+## Overview
 
-## Table of Contents
+The Inception project provides a fully functional WordPress website served over HTTPS. The infrastructure consists of three main services:
 
-1. [Getting Started](#getting-started)
-2. [Starting and Stopping the Stack](#starting-and-stopping-the-stack)
-3. [Accessing the Website](#accessing-the-website)
-4. [Managing Credentials](#managing-credentials)
-5. [Basic Checks and Troubleshooting](#basic-checks-and-troubleshooting)
+1. **Web Server (NGINX)**: Handles all incoming HTTPS traffic on port 443
+2. **WordPress**: Content management system for creating and managing your website
+3. **Database (MariaDB)**: Stores all WordPress data
 
-## Getting Started
+## Starting and Stopping the Project
 
-### System Requirements
+### Starting All Services
 
-- Docker Engine 20.10 or higher
-- Docker Compose 1.29 or higher
-- At least 2GB of free disk space
-- Root or sudo access
+To start the complete infrastructure:
 
-### Initial Setup
-
-Before starting the services for the first time:
-
-1. **Add domain to hosts file**:
-   ```bash
-   sudo echo "127.0.0.1 shkaruna.42.fr" >> /etc/hosts
-   ```
-
-2. **Ensure directories exist**:
-   The Makefile will automatically create the required directories at `/home/shkaruna/data/mariadb` and `/home/shkaruna/data/wordpress`.
-
-## Starting and Stopping the Stack
-
-### Start All Services
-
-To build and start all services:
 ```bash
+cd /path/to/Inception
 make
 ```
-or
+
+Or individually:
 ```bash
-make up
+make build    # Build Docker images
+make up       # Start containers
 ```
 
-This command will:
-- Create necessary data directories
-- Build Docker images for all services
-- Start all containers in detached mode
-- Display the URL to access your site
+The services will start in the correct order:
+1. MariaDB (database)
+2. WordPress (waits for database)
+3. NGINX (waits for WordPress)
 
-**Expected output**: "Containers are up and running!"
+### Stopping All Services
 
-### Stop Services
+To stop all running containers:
 
-To stop all running containers without removing them:
-```bash
-make stop
-```
-
-Use this when you want to temporarily stop services but keep all data intact.
-
-### Start Existing Services
-
-To start previously stopped containers:
-```bash
-make start
-```
-
-### Restart Services
-
-To restart all services:
-```bash
-make restart
-```
-
-Useful after configuration changes or when services become unresponsive.
-
-### Stop and Remove Containers
-
-To stop and remove all containers:
 ```bash
 make down
 ```
 
-This removes containers but preserves volumes and data.
+This preserves all your data in the volumes.
 
-### Complete Cleanup
+### Restarting Services
 
-To perform a complete cleanup (⚠️ **Warning**: This removes all data):
+To restart all services:
+
 ```bash
-make fclean
+make restart
 ```
-
-This will:
-- Stop and remove all containers
-- Remove all volumes
-- Remove all Docker images
-- Delete data directories
-- Prune the Docker system
-
-**Use with caution**: All WordPress content and database data will be lost.
 
 ## Accessing the Website
 
-### WordPress Website
+### Main Website
 
-Once the stack is running, access the website at:
+1. Open your web browser
+2. Navigate to: **https://shkaruna.42.fr**
+3. Accept the self-signed certificate warning (click "Advanced" → "Proceed")
+4. You should see your WordPress homepage
+
+### WordPress Administration Panel
+
+1. Navigate to: **https://shkaruna.42.fr/wp-admin**
+2. Use the administrator credentials (see below)
+3. You can now manage your website, create posts, install themes, etc.
+
+## Credentials
+
+All credentials are stored in the `secrets/` directory. The main credentials file is:
+
 ```
-https://shkaruna.42.fr
+secrets/credentials.txt
 ```
 
-**Note**: Your browser will show a security warning because the SSL certificate is self-signed. This is expected. Click "Advanced" and "Proceed to site" to continue.
+### Default Credentials
 
-### WordPress Admin Panel
+**WordPress Administrator:**
+- Username: `wpmaster`
+- Password: `AdminPass789Secure!`
+- Email: `wpmaster@shkaruna.42.fr`
 
-To access the WordPress administration dashboard:
+**WordPress Regular User:**
+- Username: `wpuser`
+- Password: `UserPass321!`
+- Email: `wpuser@shkaruna.42.fr`
 
-1. Navigate to: `https://shkaruna.42.fr/wp-admin`
-2. Log in with the administrator credentials (see Managing Credentials section)
+**Database Access:**
+- Database Name: `wordpress_db`
+- Database User: `wordpress_user`
+- Database Password: `WpUserPass456Secure!`
+- Root Password: `RootPass123Secure!`
 
-### Available Users
+> ⚠️ **Important**: Change these passwords in a production environment!
 
-Two WordPress users are created by default:
-- **Administrator**: Full access to all WordPress features
-- **Author**: Can create and publish posts
+## Checking Service Status
 
-## Managing Credentials
-
-### Viewing Credentials
-
-Credentials are stored in the `secrets/` directory:
+### View Running Containers
 
 ```bash
-# Database root password
-cat secrets/db_root_password.txt
-
-# Database user password
-cat secrets/db_password.txt
-
-# WordPress credentials
-cat secrets/credentials.txt
+make ps
 ```
 
-### Environment Variables
-
-The `.env` file in the `srcs/` directory contains all configuration:
-
-```bash
-cat srcs/.env
-```
-
-### Changing Passwords
-
-To change passwords:
-
-1. **Stop the services**:
-   ```bash
-   make down
-   ```
-
-2. **Edit the .env file**:
-   ```bash
-   nano srcs/.env
-   ```
-
-3. **Perform a clean rebuild**:
-   ```bash
-   make fclean
-   make up
-   ```
-
-**Important**: Changing passwords after initial setup requires a complete rebuild.
-
-## Basic Checks and Troubleshooting
-
-### Check Service Status
-
-To view running containers:
+Or directly with Docker:
 ```bash
 docker ps
 ```
@@ -187,120 +109,203 @@ You should see three containers running:
 - `wordpress`
 - `mariadb`
 
-### Check Logs
+### View Service Logs
 
-To view logs for all services:
+To see logs from all services:
 ```bash
-docker-compose -f srcs/docker-compose.yml logs
+make logs
 ```
 
-To view logs for a specific service:
+To see logs from a specific service:
 ```bash
-docker-compose -f srcs/docker-compose.yml logs nginx
-docker-compose -f srcs/docker-compose.yml logs wordpress
-docker-compose -f srcs/docker-compose.yml logs mariadb
+docker logs nginx
+docker logs wordpress
+docker logs mariadb
 ```
 
-To follow logs in real-time:
+### Check Service Health
+
+All services have health checks. To verify:
+
 ```bash
-docker-compose -f srcs/docker-compose.yml logs -f
+docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
 
-### Check Volumes
+Healthy services will show "Up" with "(healthy)" status.
 
-To verify that data volumes exist:
+### Manual Health Checks
+
+**NGINX:**
 ```bash
-docker volume ls
+curl -k https://shkaruna.42.fr
 ```
 
-To inspect a volume:
+**MariaDB:**
 ```bash
-docker volume inspect srcs_mariadb_data
-docker volume inspect srcs_wordpress_data
+docker exec mariadb mysqladmin ping -h localhost
 ```
 
-### Check Network
-
-To verify the Docker network:
+**WordPress:**
 ```bash
-docker network ls
+docker exec wordpress ls -la /var/www/html/wp-config.php
 ```
 
-You should see a network named `srcs_inception`.
+## Data Storage Locations
 
-### Common Issues
+All persistent data is stored on the host machine:
 
-#### Cannot access https://shkaruna.42.fr
+```
+/home/shkaruna/data/
+├── mariadb/      # Database files
+└── wordpress/    # WordPress files (themes, plugins, uploads)
+```
 
-**Solution**:
-1. Check that services are running: `docker ps`
-2. Verify `/etc/hosts` contains: `127.0.0.1 shkaruna.42.fr`
-3. Check NGINX logs: `docker-compose -f srcs/docker-compose.yml logs nginx`
-
-#### WordPress shows installation page
-
-**Solution**:
-- WordPress setup may have failed. Check logs: `docker-compose -f srcs/docker-compose.yml logs wordpress`
-- Rebuild: `make fclean && make up`
-
-#### Database connection error
-
-**Solution**:
-1. Check MariaDB is running: `docker ps | grep mariadb`
-2. Check MariaDB logs: `docker-compose -f srcs/docker-compose.yml logs mariadb`
-3. Verify credentials in `.env` file match
-
-#### Port 443 already in use
-
-**Solution**:
-- Another service is using port 443
-- Stop the conflicting service or change the port in `docker-compose.yml`
-
-### Verifying Installation
-
-After starting the services, verify everything works:
-
-1. **Check all containers are running**:
-   ```bash
-   docker ps
-   ```
-   All three containers should have status "Up".
-
-2. **Access the website**:
-   Open https://shkaruna.42.fr in your browser.
-
-3. **Log in to admin panel**:
-   Navigate to https://shkaruna.42.fr/wp-admin and log in.
-
-4. **Test WordPress functionality**:
-   - Create a new post
-   - Add a comment
-   - Edit a page
-
-### Data Persistence
-
-Data is stored in two locations:
-
-- **MariaDB data**: `/home/shkaruna/data/mariadb`
-- **WordPress files**: `/home/shkaruna/data/wordpress`
-
-This data persists even after running `make down`. To completely remove all data, use `make fclean`.
-
-### Backup Recommendations
+### Backup Your Data
 
 To backup your data:
 
 ```bash
-# Backup WordPress files
-sudo tar -czf wordpress-backup.tar.gz /home/shkaruna/data/wordpress
+# Backup database
+sudo tar -czf wordpress-db-backup-$(date +%Y%m%d).tar.gz /home/shkaruna/data/mariadb
 
-# Backup MariaDB data
-sudo tar -czf mariadb-backup.tar.gz /home/shkaruna/data/mariadb
+# Backup WordPress files
+sudo tar -czf wordpress-files-backup-$(date +%Y%m%d).tar.gz /home/shkaruna/data/wordpress
 ```
 
-## Support
+### Restore from Backup
 
-For technical issues or questions:
-- Check the logs first
-- Review the DEV_DOC.md for technical details
-- Consult Docker and WordPress official documentation
+1. Stop the services: `make down`
+2. Restore the data:
+```bash
+sudo rm -rf /home/shkaruna/data/mariadb/*
+sudo rm -rf /home/shkaruna/data/wordpress/*
+sudo tar -xzf wordpress-db-backup-YYYYMMDD.tar.gz -C /
+sudo tar -xzf wordpress-files-backup-YYYYMMDD.tar.gz -C /
+```
+3. Start the services: `make up`
+
+## Common Tasks
+
+### Reset Everything
+
+To completely reset the project (⚠️ deletes all data):
+
+```bash
+make fclean
+make
+```
+
+### Update WordPress
+
+WordPress updates can be done through the admin panel:
+1. Go to https://shkaruna.42.fr/wp-admin
+2. Navigate to Dashboard → Updates
+3. Click "Update Now"
+
+### Add a New User
+
+Via admin panel:
+1. Login to WordPress admin
+2. Go to Users → Add New
+3. Fill in the details and assign a role
+
+Via command line:
+```bash
+docker exec wordpress wp user create newuser newuser@example.com \
+    --role=editor --user_pass=SecurePassword123 --allow-root
+```
+
+### Install Plugins/Themes
+
+Via admin panel:
+1. Login to WordPress admin
+2. Go to Plugins → Add New or Appearance → Themes → Add New
+3. Search, install, and activate
+
+Via WP-CLI:
+```bash
+# Install a plugin
+docker exec wordpress wp plugin install plugin-name --activate --allow-root
+
+# Install a theme
+docker exec wordpress wp theme install theme-name --activate --allow-root
+```
+
+## Troubleshooting
+
+### Website Not Loading
+
+1. Check if containers are running:
+```bash
+make ps
+```
+
+2. Check NGINX logs:
+```bash
+docker logs nginx
+```
+
+3. Verify domain resolution:
+```bash
+ping shkaruna.42.fr
+```
+
+4. Check if `/etc/hosts` is configured:
+```bash
+cat /etc/hosts | grep shkaruna
+```
+
+### Database Connection Errors
+
+1. Check MariaDB logs:
+```bash
+docker logs mariadb
+```
+
+2. Verify database is responding:
+```bash
+docker exec mariadb mysqladmin ping -h localhost
+```
+
+3. Check network connectivity:
+```bash
+docker exec wordpress ping -c 3 mariadb
+```
+
+### SSL Certificate Warnings
+
+The project uses self-signed certificates. In a browser:
+1. Click "Advanced" when you see the warning
+2. Click "Proceed to shkaruna.42.fr (unsafe)"
+
+For production, you would use Let's Encrypt certificates.
+
+### Permission Issues
+
+If you encounter permission errors:
+
+```bash
+# Fix volume permissions
+sudo chown -R www-data:www-data /home/shkaruna/data/wordpress
+sudo chown -R mysql:mysql /home/shkaruna/data/mariadb
+```
+
+### Containers Keep Restarting
+
+Check the logs for the specific container:
+```bash
+docker logs <container-name>
+```
+
+Common causes:
+- Configuration errors
+- Missing environment variables
+- Database not ready (should auto-resolve with health checks)
+
+## Additional Resources
+
+For database access and port configuration instructions, see [DATABASE_AND_PORT_GUIDE.md](DATABASE_AND_PORT_GUIDE.md).
+
+For WordPress help:
+- [WordPress Support](https://wordpress.org/support/)
+- [WordPress Codex](https://codex.wordpress.org/)
