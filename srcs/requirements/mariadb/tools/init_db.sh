@@ -1,59 +1,102 @@
 #!/bin/bash
-
 set -e
 
-# Ensure data directory exists and has proper permissions
-mkdir -p /var/lib/mysql
-chown -R mysql:mysql /var/lib/mysql
+echo "MariaDB initialization script started"
 
-# Initialize MariaDB data directory if not already initialized
-if [ ! -d "/var/lib/mysql/mysql" ]; then
-    echo "Initializing MariaDB data directory..."
-    mysql_install_db --user=mysql --datadir=/var/lib/mysql
+# Read secrets
+if [ ! -f /run/secrets/db_root_password ] || [ ! -f /run/secrets/db_password ]; then
+    echo "ERROR: Secret files not found!"
+    exit 1
+fi
+
+DB_ROOT_PASSWORD=$(cat /run/secrets/db_root_password)
+DB_PASSWORD=$(cat /run/secrets/db_password)
+
+echo "Secrets loaded successfully"
+
+# Check if database is already initialized by looking for a marker file
+if [ ! -f "/var/lib/mysql/.initialized" ]; then
+    echo "Initializing MariaDB database..."
     
-    echo "Starting temporary MariaDB for initial setup..."
-    # Start MariaDB in background
+    # Remove any incomplete initialization
+    rm -rf /var/lib/mysql/*
+    
+    # Initialize the database
+    mysql_install_db --user=mysql --datadir=/var/lib/mysql --skip-test-db
+
+    # Start MariaDB temporarily in background
+    echo "Starting temporary MariaDB instance..."
     mysqld --user=mysql --datadir=/var/lib/mysql --skip-networking &
-    MYSQL_PID=$!
-    
-    # Wait for MariaDB to be ready
+    pid="$!"
+
+    # Wait for MariaDB to start
     echo "Waiting for MariaDB to start..."
+    sleep 3
+    
     for i in {30..0}; do
-        if mysqladmin ping --silent; then
+        if mysqladmin ping --silent 2>/dev/null; then
             break
         fi
-        echo "Waiting for MariaDB... $i"
+        echo "MariaDB is starting up... waiting ($i seconds left)"
         sleep 1
     done
     
     if [ "$i" = 0 ]; then
-        echo "MariaDB failed to start"
+        echo "ERROR: MariaDB failed to start within timeout"
+        kill -s TERM "$pid" 2>/dev/null || true
         exit 1
     fi
+
+    echo "MariaDB started successfully"
+
+    # Configure root user (force socket connection by using localhost)
+    mysql -u root -h localhost <<-EOSQL
+        ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_ROOT_PASSWORD}';
+        DELETE FROM mysql.user WHERE User='';
+        DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+        DROP DATABASE IF EXISTS test;
+        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+        FLUSH PRIVILEGES;
+EOSQL
+
+    # Create database and user
+    mysql -u root -p"${DB_ROOT_PASSWORD}" -h localhost <<-EOSQL
+        CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE};
+        CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+        GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}.* TO '${MYSQL_USER}'@'%';
+        FLUSH PRIVILEGES;
+EOSQL
+
+    echo "Database and user created successfully"
+
+    # Create marker file to indicate successful initialization
+    touch /var/lib/mysql/.initialized
+
+    # Stop the temporary MariaDB instance
+    echo "Stopping temporary MariaDB instance..."
+    if ! mysqladmin -u root -p"${DB_ROOT_PASSWORD}" shutdown 2>/dev/null; then
+        echo "Shutdown command failed, forcing stop..."
+        kill -s TERM "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+
+    echo "MariaDB initialization complete"
+else
+    echo "MariaDB database already initialized (marker file exists)"
     
-    echo "MariaDB started, configuring database..."
-    
-    # Run SQL commands
-    mysql -u root << EOF
-USE mysql;
-FLUSH PRIVILEGES;
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
-CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE};
-CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
-GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}.* TO '${MYSQL_USER}'@'%';
-FLUSH PRIVILEGES;
-EOF
-    
-    echo "MariaDB initialization complete!"
-    
-    # Shutdown the temporary MariaDB
-    mysqladmin -u root -p"${MYSQL_ROOT_PASSWORD}" shutdown
-    wait $MYSQL_PID
+    # Verify data directory has valid database files
+    if [ ! -d "/var/lib/mysql/mysql" ]; then
+        echo "WARNING: Marker file exists but data is corrupted. Re-initializing..."
+        rm -f /var/lib/mysql/.initialized
+        rm -rf /var/lib/mysql/*
+        exec "$0" "$@"
+    fi
 fi
 
-echo "Database: ${MYSQL_DATABASE}"
-echo "User: ${MYSQL_USER}"
+# Ensure proper permissions
+chown -R mysql:mysql /var/lib/mysql
+chown -R mysql:mysql /run/mysqld
 
-# Start MySQL in foreground
-echo "Starting MariaDB server..."
-exec mysqld --user=mysql --datadir=/var/lib/mysql
+# Start MariaDB in foreground
+echo "Starting MariaDB in foreground..."
+exec mysqld --user=mysql --console

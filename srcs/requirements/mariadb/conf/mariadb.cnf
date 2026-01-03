@@ -1,26 +1,23 @@
 [mysqld]
-# Basic Settings
-user = mysql
-port = 3306
-datadir = /var/lib/mysql
-socket = /run/mysqld/mysqld.sock
+user                    = mysql
+pid-file                = /run/mysqld/mysqld.pid
+socket                  = /run/mysqld/mysqld.sock
+port                    = 3306
+basedir                 = /usr
+datadir                 = /var/lib/mysql
+tmpdir                  = /tmp
+lc-messages-dir         = /usr/share/mysql
 
 # Network Configuration
-bind-address = 0.0.0.0
-# 0.0.0.0 = Accept connections from anywhere (needed for Docker)
+bind-address            = 0.0.0.0
 
-# Character Set (Important for WordPress!)
-character-set-server = utf8mb4
-collation-server = utf8mb4_unicode_ci
+# Character Set
+character-set-server    = utf8mb4
+collation-server        = utf8mb4_unicode_ci
 
-# Performance
-max_connections = 100
-innodb_buffer_pool_size = 256M
+# Logging
+log_error               = /var/log/mysql/error.log
 
-[client]
-port = 3306
-socket = /run/mysqld/mysqld.sock
-default-character-set = utf8mb4
-
-[mysql]
-default-character-set = utf8mb4
+# Skip host cache to avoid issues
+skip-host-cache
+skip-name-resolve

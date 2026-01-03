@@ -1,25 +1,25 @@
-FROM debian:bookworm
+FROM debian:bullseye
 
-# Install MariaDB
+# Install MariaDB server
 RUN apt-get update && \
     apt-get install -y mariadb-server mariadb-client && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create necessary directories and set permissions
-RUN mkdir -p /var/run/mysqld && \
-    chown -R mysql:mysql /var/run/mysqld && \
-    chmod 777 /var/run/mysqld
-
-# Copy configuration file
-COPY conf/mariadb.cnf /etc/mysql/mariadb.conf.d/50-server.cnf
+# Copy MariaDB configuration
+COPY conf/mariadb.cnf /etc/mysql/mariadb.conf.d/mariadb.cnf
 
 # Copy initialization script
-COPY tools/init_db.sh /usr/local/bin/
+COPY tools/init_db.sh /usr/local/bin/init_db.sh
 RUN chmod +x /usr/local/bin/init_db.sh
+
+# Create directory for MariaDB runtime files
+RUN mkdir -p /run/mysqld && \
+    chown -R mysql:mysql /run/mysqld && \
+    chown -R mysql:mysql /var/lib/mysql
 
 # Expose MariaDB port
 EXPOSE 3306
 
-# Run initialization script, then start MariaDB
+# Run initialization script
 ENTRYPOINT ["/usr/local/bin/init_db.sh"]
-CMD ["mysqld"]
