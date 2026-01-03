@@ -1,61 +1,54 @@
-.PHONY: all up down start stop restart clean fclean re logs ps
+.PHONY: all build up down restart clean fclean re logs ps
 
 # Default target
-all: up
+all: build up
 
-# Create necessary directories and start containers
-up:
-	@echo "Creating data directories..."
-	@mkdir -p /home/shkaruna/data/mariadb
+# Build all Docker images
+build:
+	@echo "Building Docker images..."
 	@mkdir -p /home/shkaruna/data/wordpress
-	@echo "Building and starting containers..."
-	@docker-compose -f srcs/docker-compose.yml up --build -d
-	@echo "Containers are up and running!"
-	@echo "Access your site at: https://shkaruna.42.fr"
+	@mkdir -p /home/shkaruna/data/mariadb
+	docker-compose -f srcs/docker-compose.yml build
 
-# Start existing containers without rebuilding
-start:
+# Start all containers
+up:
 	@echo "Starting containers..."
-	@docker-compose -f srcs/docker-compose.yml start
+	@mkdir -p /home/shkaruna/data/wordpress
+	@mkdir -p /home/shkaruna/data/mariadb
+	@sudo chown -R $(shell id -u):$(shell id -g) /home/shkaruna/data/wordpress
+	@sudo chown -R $(shell id -u):$(shell id -g) /home/shkaruna/data/mariadb
+	docker-compose -f srcs/docker-compose.yml up -d
 
-# Stop containers without removing them
-stop:
+# Stop all containers
+down:
 	@echo "Stopping containers..."
-	@docker-compose -f srcs/docker-compose.yml stop
+	docker-compose -f srcs/docker-compose.yml down
 
-# Restart containers
+# Restart all containers
 restart:
 	@echo "Restarting containers..."
-	@docker-compose -f srcs/docker-compose.yml restart
+	docker-compose -f srcs/docker-compose.yml restart
 
-# Stop and remove containers
-down:
-	@echo "Stopping and removing containers..."
-	@docker-compose -f srcs/docker-compose.yml down
-
-# Stop containers, remove networks
+# Stop containers and remove images
 clean: down
-	@echo "Cleaning up networks..."
-	@docker network prune -f
+	@echo "Removing Docker images..."
+	docker-compose -f srcs/docker-compose.yml down --rmi all
 
-# Complete cleanup: remove containers, networks, volumes, and data
-fclean:
-	@echo "Complete cleanup..."
-	@docker-compose -f srcs/docker-compose.yml down -v
-	@docker system prune -a -f
-	@echo "Removing data directories..."
-	@sudo rm -rf /home/shkaruna/data/mariadb
-	@sudo rm -rf /home/shkaruna/data/wordpress
-	@echo "Cleanup complete!"
+# Full cleanup including volumes
+fclean: down
+	@echo "Full cleanup..."
+	docker-compose -f srcs/docker-compose.yml down --rmi all --volumes
+	@sudo rm -rf /home/shkaruna/data/wordpress/* /home/shkaruna/data/wordpress/.*  2>/dev/null || true
+	@sudo rm -rf /home/shkaruna/data/mariadb/* /home/shkaruna/data/mariadb/.* 2>/dev/null || true
+	docker system prune -af --volumes
 
 # Rebuild everything from scratch
 re: fclean all
 
-# Show container logs
+# Show logs
 logs:
-	@docker-compose -f srcs/docker-compose.yml logs -f
+	docker-compose -f srcs/docker-compose.yml logs -f
 
 # Show running containers
 ps:
-	@docker-compose -f srcs/docker-compose.yml ps
-
+	docker-compose -f srcs/docker-compose.yml ps
