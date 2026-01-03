@@ -5,17 +5,21 @@ services:
     build:
       context: ./requirements/mariadb
       dockerfile: Dockerfile
-    env_file:
-      - .env
+    image: mariadb:42
     volumes:
       - mariadb_data:/var/lib/mysql
     networks:
       - inception
-    restart: unless-stopped
+    env_file:
+      - .env
+    secrets:
+      - db_root_password
+      - db_password
+    restart: always
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 5
 
   wordpress:
@@ -23,33 +27,47 @@ services:
     build:
       context: ./requirements/wordpress
       dockerfile: Dockerfile
-    env_file:
-      - .env
+    image: wordpress:42
+    depends_on:
+      mariadb:
+        condition: service_healthy
     volumes:
       - wordpress_data:/var/www/html
     networks:
       - inception
-    depends_on:
-      mariadb:
-        condition: service_healthy
-    restart: unless-stopped
+    env_file:
+      - .env
+    secrets:
+      - db_password
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/www/html/wp-config.php || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   nginx:
     container_name: nginx
     build:
       context: ./requirements/nginx
       dockerfile: Dockerfile
-    env_file:
-      - .env
+    image: nginx:42
+    depends_on:
+      wordpress:
+        condition: service_healthy
     volumes:
       - wordpress_data:/var/www/html
     networks:
       - inception
-    depends_on:
-      - wordpress
     ports:
       - "443:443"
-    restart: unless-stopped
+    env_file:
+      - .env
+    restart: always
+
+networks:
+  inception:
+    driver: bridge
 
 volumes:
   mariadb_data:
@@ -58,7 +76,6 @@ volumes:
       type: none
       o: bind
       device: /home/shkaruna/data/mariadb
-  
   wordpress_data:
     driver: local
     driver_opts:
@@ -66,8 +83,8 @@ volumes:
       o: bind
       device: /home/shkaruna/data/wordpress
 
-networks:
-  inception:
-    driver: bridge 
-#Creates a virtual network bridge on the host
-#Containers can talk to each other using container names as hostnames
+secrets:
+  db_root_password:
+    file: ../secrets/db_root_password.txt
+  db_password:
+    file: ../secrets/db_password.txt
