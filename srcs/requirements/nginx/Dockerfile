@@ -1,10 +1,9 @@
-FROM debian:bookworm
+FROM debian:bullseye
 
-# Install NGINX and OpenSSL
+# Install nginx and openssl
 RUN apt-get update && \
-    apt-get install -y \
-    nginx \
-    openssl && \
+    apt-get install -y nginx openssl && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Create directory for SSL certificates
@@ -16,14 +15,14 @@ RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -out /etc/nginx/ssl/nginx.crt \
     -subj "/C=FR/ST=IDF/L=Paris/O=42/OU=42/CN=shkaruna.42.fr"
 
-# Copy NGINX configuration
+# Copy nginx configuration
 COPY conf/nginx.conf /etc/nginx/nginx.conf
 
-# Create directory for PHP socket/PID files
-RUN mkdir -p /var/run/nginx
+# Create directory for nginx PID
+RUN mkdir -p /run/nginx
 
-# Expose HTTPS port
+# Expose port 443 for HTTPS
 EXPOSE 443
 
-# Start NGINX in foreground
+# Start nginx in foreground
 CMD ["nginx", "-g", "daemon off;"]
